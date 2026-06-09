@@ -17,7 +17,18 @@ class SuperAdminSeeder extends Seeder
         // Ensure super-admin role exists and has all permissions
         $superAdminRole = Role::firstOrCreate(['name' => 'super-admin']);
         $superAdminRole->syncPermissions(Permission::all());
+// داخل دالة run()
+Permission::firstOrCreate(['name' => 'set_stage_timestamp']);
+// دالة run()
+Permission::firstOrCreate(['name' => 'set_order_date']);   // للتحكم بزر تاريخ الطلب
+Permission::firstOrCreate(['name' => 'set_stage_timestamp']); // للتحكم بأزرار التواقيت
 
+// ثم امنحها للأدوار المطلوبة
+$superAdminRole->givePermissionTo('set_order_date');
+$superAdminRole->givePermissionTo('set_stage_timestamp');
+
+// ثم امنح الصلاحية للأدوار المناسبة (مثلاً super-admin و manager)
+$superAdminRole->givePermissionTo('set_stage_timestamp');
         // Create super admin user
         $user = User::firstOrCreate(
             ['email' => 'admin@example.com'],

@@ -13,6 +13,7 @@
         "filament/filament": "^3.3",
         "laravel/framework": "^12.0",
         "laravel/tinker": "^3.0",
+        "maatwebsite/excel": "^3.1",
         "pxlrbt/filament-excel": "^2.5",
         "spatie/laravel-model-status": "^1.20",
         "spatie/laravel-permission": "^6.0"

@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('customerName')->nullable();
             $table->string('customerContactNumber')->nullable();
             $table->string('orderId')->unique();
-            $table->date('orderDate');
+            $table->timestamp('orderDate');
             $table->enum('priceList', ['cash', 'half_half', 'hawala'])->nullable()->comment('نوع الدفع: كاش - 50% 50% - حوالة');
             $table->decimal('total', 10, 2)->nullable();
             $table->string('employeeName')->nullable(); // اسم المنشئ (من جدول users)
