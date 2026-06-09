@@ -16,12 +16,15 @@ class Order extends Model
         'orderForApprove', 'orderApproved', 'orderForPayment',
         'collectPayment', 'sellApprove', 'releaseApprove',
         'startPreparation', 'readyToDeliver', 'outForDeliver',
-        'delivered', 'currentStatus', 'user_id'
+        'delivered', 'currentStatus', 'user_id',
+        'cash_received', 'hawala_received'  // الحقول الجديدة
     ];
 
     protected $casts = [
-        'orderDate'          => 'date',
+        'orderDate'          => 'datetime', // تم التعديل: orderDate من نوع timestamp في الميجريشن
         'total'              => 'decimal:2',
+        'cash_received'      => 'decimal:2',
+        'hawala_received'    => 'decimal:2',
         'orderForApprove'    => 'datetime',
         'orderApproved'      => 'datetime',
         'orderForPayment'    => 'datetime',
@@ -33,6 +36,28 @@ class Order extends Model
         'outForDeliver'      => 'datetime',
         'delivered'          => 'datetime',
     ];
+
+    // عند تعيين قيمة cash_received، يتم تحديث total
+    public function setCashReceivedAttribute($value)
+    {
+        $this->attributes['cash_received'] = $value;
+        $this->updateTotal();
+    }
+
+    // عند تعيين قيمة hawala_received، يتم تحديث total
+    public function setHawalaReceivedAttribute($value)
+    {
+        $this->attributes['hawala_received'] = $value;
+        $this->updateTotal();
+    }
+
+    // دالة خاصة لحساب total = cash_received + hawala_received
+    protected function updateTotal()
+    {
+        $cash = $this->attributes['cash_received'] ?? 0;
+        $hawala = $this->attributes['hawala_received'] ?? 0;
+        $this->attributes['total'] = $cash + $hawala;
+    }
 
     // تنظيف القيمة عند التعيين
     public function setAttribute($key, $value)
@@ -68,7 +93,7 @@ class Order extends Model
         return $this->belongsTo(User::class);
     }
 
-    // نطاق لتصفية الطلبات حسب صلاحية المستخدم (يعتمد على user_id)
+    // نطاق لتصفية الطلبات حسب صلاحية المستخدم
     public function scopeForUser($query, $userId)
     {
         if (auth()->user()->hasRole('super-admin')) {
@@ -136,4 +161,13 @@ class Order extends Model
         if ($mins) $parts[] = "$mins دقيقة";
         return implode(' ', $parts) ?: '0 دقيقة';
     }
+    // داخل class Order
+protected static function booted()
+{
+    static::saving(function ($order) {
+        $cash = $order->cash_received ?? 0;
+        $hawala = $order->hawala_received ?? 0;
+        $order->total = $cash + $hawala;
+    });
+}
 }

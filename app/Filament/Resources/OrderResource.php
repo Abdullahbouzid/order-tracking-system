@@ -45,8 +45,13 @@ class OrderResource extends Resource
         return $data;
     }
 
+    public static function mutateFormDataBeforeSave(array $data): array
+    {
+        return $data;
+    }
+
     /**
-     * دالة مساعدة لإنشاء حقل DateTimePicker مع زر "خذ الوقت الحالي"
+     * دالة مساعدة لإنشاء حقل DateTimePicker مع زر "خذ الوقت الحالي" فقط
      */
     protected static function makeDateTimeField(string $name, string $label, string $permission = 'set_stage_timestamp'): DateTimePicker
     {
@@ -63,6 +68,34 @@ class OrderResource extends Resource
                         $set($name, now()->format('Y-m-d H:i:s'));
                         $livewire->dispatch('refresh');
                     }),
+            ]);
+    }
+
+    /**
+     * دالة مساعدة لإنشاء حقل DateTimePicker مع زر "خذ الوقت الحالي" وزر رابط SendPulse
+     */
+    protected static function makeDateTimeFieldWithSendPulseLink(string $name, string $label, string $permission = 'set_stage_timestamp'): DateTimePicker
+    {
+        return DateTimePicker::make($name)
+            ->label($label)
+            ->displayFormat('d/m/Y H:i:s')
+            ->suffixActions([
+                Action::make('set_now')
+                    ->label('خذ الوقت الحالي')
+                    ->icon('heroicon-o-clock')
+                    ->color('primary')
+                    ->visible(fn () => auth()->user()->can($permission))
+                    ->action(function ($livewire, callable $set) use ($name) {
+                        $set($name, now()->format('Y-m-d H:i:s'));
+                        $livewire->dispatch('refresh');
+                    }),
+                Action::make('sendpulse_link')
+                    ->label('إدارة المحادثات')
+                    ->icon('heroicon-o-chat-bubble-left-right')
+                    ->color('success')
+                    ->url('https://login.sendpulse.com/messengers', shouldOpenInNewTab: true)
+                    ->openUrlInNewTab()
+                    ->visible(fn () => auth()->user()->can($permission)),
             ]);
     }
 
@@ -94,11 +127,38 @@ class OrderResource extends Resource
                                 'hawala'    => 'حوالة',
                             ])
                             ->nullable(),
-                        Forms\Components\TextInput::make('total')
-                            ->label('إجمالي السعر')
+                        // المبلغ المستلم كاش (تحديث فوري للإجمالي)
+                        Forms\Components\TextInput::make('cash_received')
+                            ->label('المبلغ المستلم (كاش)')
                             ->numeric()
                             ->prefix('LYD')
-                            ->nullable(),
+                            ->nullable()
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(function ($state, callable $set, $get) {
+                                $cash = floatval($state ?? 0);
+                                $hawala = floatval($get('hawala_received') ?? 0);
+                                $set('total', $cash + $hawala);
+                            }),
+                        // المبلغ المستلم حوالة (تحديث فوري للإجمالي)
+                        Forms\Components\TextInput::make('hawala_received')
+                            ->label('المبلغ المستلم (حوالة)')
+                            ->numeric()
+                            ->prefix('LYD')
+                            ->nullable()
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(function ($state, callable $set, $get) {
+                                $cash = floatval($get('cash_received') ?? 0);
+                                $hawala = floatval($state ?? 0);
+                                $set('total', $cash + $hawala);
+                            }),
+                        // إجمالي السعر (للقراءة فقط، يتم تحديثه تلقائياً)
+                        Forms\Components\TextInput::make('total')
+                            ->label('إجمالي السعر (كاش + حوالة)')
+                            ->numeric()
+                            ->prefix('LYD')
+                            ->disabled()
+                            ->dehydrated(true)
+                            ->helperText('يتم حسابه تلقائياً عند إدخال المبالغ المستلمة.'),
                         Forms\Components\TextInput::make('employeeName')
                             ->label('اسم الموظف')
                             ->maxLength(255)
@@ -124,9 +184,9 @@ class OrderResource extends Resource
 
                 Forms\Components\Card::make()
                     ->schema([
-                        self::makeDateTimeField('orderForApprove', 'طلب الموافقة'),
+                        self::makeDateTimeFieldWithSendPulseLink('orderForApprove', 'طلب الموافقة'),
                         self::makeDateTimeField('orderApproved', 'تمت الموافقة'),
-                        self::makeDateTimeField('orderForPayment', 'طلب الدفع'),
+                        self::makeDateTimeFieldWithSendPulseLink('orderForPayment', 'طلب الدفع'),
                         self::makeDateTimeField('collectPayment', 'تحصيل الدفع'),
                         self::makeDateTimeField('sellApprove', 'موافقة البيع'),
                         self::makeDateTimeField('releaseApprove', 'موافقة الإفراج'),
@@ -144,7 +204,6 @@ class OrderResource extends Resource
             ->query(Order::query()->forUser(Auth::id()))
             ->columns([
                 Tables\Columns\TextColumn::make('id')->label('#')->sortable()->toggleable(),
-                Tables\Columns\TextColumn::make('user.name')->label('المستخدم المنشئ')->sortable()->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('employeeName')->label('اسم الموظف')->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('customerName')->label('العميل')->searchable()->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('customerContactNumber')->label('رقم الهاتف')->searchable()->toggleable(),
@@ -159,7 +218,18 @@ class OrderResource extends Resource
                     ->formatStateUsing(fn ($state) => match($state) {
                         'cash' => 'كاش', 'half_half' => '50% 50%', 'hawala' => 'حوالة', default => '-',
                     })->toggleable(),
-                Tables\Columns\TextColumn::make('total')->label('الإجمالي')->money('LYD')->toggleable(),
+                Tables\Columns\TextColumn::make('cash_received')
+                    ->label('المبلغ المستلم (كاش)')
+                    ->money('LYD')
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('hawala_received')
+                    ->label('المبلغ المستلم (حوالة)')
+                    ->money('LYD')
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('total')
+                    ->label('الإجمالي (كاش+حوالة)')
+                    ->money('LYD')
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('currentStatus')
                     ->label('الحالة')
                     ->badge()
@@ -200,6 +270,24 @@ class OrderResource extends Resource
                 Tables\Filters\SelectFilter::make('priceList')
                     ->label('نوع الدفع')
                     ->options(['cash' => 'كاش', 'half_half' => '50% 50%', 'hawala' => 'حوالة']),
+                Tables\Filters\Filter::make('cash_range')
+                    ->form([
+                        Forms\Components\TextInput::make('cash_from')->label('المبلغ المستلم (كاش) من')->numeric(),
+                        Forms\Components\TextInput::make('cash_to')->label('إلى')->numeric(),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['cash_from'], fn ($q, $val) => $q->where('cash_received', '>=', $val))
+                        ->when($data['cash_to'], fn ($q, $val) => $q->where('cash_received', '<=', $val))
+                    ),
+                Tables\Filters\Filter::make('hawala_range')
+                    ->form([
+                        Forms\Components\TextInput::make('hawala_from')->label('المبلغ المستلم (حوالة) من')->numeric(),
+                        Forms\Components\TextInput::make('hawala_to')->label('إلى')->numeric(),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['hawala_from'], fn ($q, $val) => $q->where('hawala_received', '>=', $val))
+                        ->when($data['hawala_to'], fn ($q, $val) => $q->where('hawala_received', '<=', $val))
+                    ),
                 Tables\Filters\Filter::make('total_range')
                     ->form([
                         Forms\Components\TextInput::make('total_from')->label('الإجمالي من')->numeric(),
@@ -292,179 +380,96 @@ class OrderResource extends Resource
                 Tables\Actions\DeleteAction::make()->visible(fn () => Auth::user()->can('delete_orders')),
             ])
             ->headerActions([
-                // زر تصدير مع فلترة (يحل محل تصدير الكل القديم)
+                // زر تصدير مع فلترة
                 Tables\Actions\Action::make('export_filtered')
                     ->label('تصدير إلى Excel (مع فلترة)')
                     ->icon('heroicon-o-document-arrow-down')
                     ->color('primary')
                     ->form([
-                        DatePicker::make('date_from')
-                            ->label('من تاريخ الطلب')
-                            ->displayFormat('d/m/Y')
-                            ->nullable(),
-                        DatePicker::make('date_to')
-                            ->label('إلى تاريخ الطلب')
-                            ->displayFormat('d/m/Y')
-                            ->nullable(),
-                        TextInput::make('customer_name')
-                            ->label('اسم العميل')
-                            ->nullable(),
-                        TextInput::make('employee_name')
-                            ->label('اسم الموظف')
-                            ->nullable(),
-                        TextInput::make('phone')
-                            ->label('رقم هاتف العميل')
-                            ->nullable(),
+                        DatePicker::make('date_from')->label('من تاريخ الطلب')->displayFormat('d/m/Y')->nullable(),
+                        DatePicker::make('date_to')->label('إلى تاريخ الطلب')->displayFormat('d/m/Y')->nullable(),
+                        TextInput::make('customer_name')->label('اسم العميل')->nullable(),
+                        TextInput::make('employee_name')->label('اسم الموظف')->nullable(),
+                        TextInput::make('phone')->label('رقم هاتف العميل')->nullable(),
                     ])
                     ->action(function (array $data) {
                         $query = Order::query()->forUser(Auth::id());
-
-                        if (!empty($data['date_from'])) {
-                            $query->whereDate('orderDate', '>=', $data['date_from']);
-                        }
-                        if (!empty($data['date_to'])) {
-                            $query->whereDate('orderDate', '<=', $data['date_to']);
-                        }
-                        if (!empty($data['customer_name'])) {
-                            $query->where('customerName', 'like', '%' . $data['customer_name'] . '%');
-                        }
-                        if (!empty($data['employee_name'])) {
-                            $query->where('employeeName', 'like', '%' . $data['employee_name'] . '%');
-                        }
-                        if (!empty($data['phone'])) {
-                            $query->where('customerContactNumber', 'like', '%' . $data['phone'] . '%');
-                        }
-
+                        if (!empty($data['date_from'])) $query->whereDate('orderDate', '>=', $data['date_from']);
+                        if (!empty($data['date_to'])) $query->whereDate('orderDate', '<=', $data['date_to']);
+                        if (!empty($data['customer_name'])) $query->where('customerName', 'like', '%' . $data['customer_name'] . '%');
+                        if (!empty($data['employee_name'])) $query->where('employeeName', 'like', '%' . $data['employee_name'] . '%');
+                        if (!empty($data['phone'])) $query->where('customerContactNumber', 'like', '%' . $data['phone'] . '%');
                         $orders = $query->get();
-
                         if ($orders->isEmpty()) {
-                            Notification::make()
-                                ->title('لا توجد بيانات تطابق المعايير')
-                                ->danger()
-                                ->send();
+                            Notification::make()->title('لا توجد بيانات تطابق المعايير')->danger()->send();
                             return;
                         }
-
-                        return Excel::download(
-                            new FilteredOrdersExport($orders),
-                            'الطلبات_' . now()->format('Ymd_His') . '.xlsx'
-                        );
+                        return Excel::download(new FilteredOrdersExport($orders), 'الطلبات_' . now()->format('Ymd_His') . '.xlsx');
                     })
                     ->visible(fn () => Auth::user()->can('view_orders')),
                 
-                // زر التقرير المخصص (مقارنة مرحلتين) – يبقى كما هو
+                // زر التقرير المخصص (مقارنة مرحلتين)
                 Tables\Actions\Action::make('custom_stage_report')
                     ->label('تقرير مخصص (مقارنة مرحلتين)')
                     ->icon('heroicon-o-chart-bar')
                     ->color('success')
                     ->form([
-                        Select::make('from_field')
-                            ->label('حقل البداية')
-                            ->options([
-                                'orderDate' => 'تاريخ الطلب',
-                                'orderForApprove' => 'طلب الموافقة',
-                                'orderApproved' => 'تمت الموافقة',
-                                'orderForPayment' => 'طلب دفع',
-                                'collectPayment' => 'تحصيل الدفع',
-                                'sellApprove' => 'موافقة البيع',
-                                'releaseApprove' => 'موافقة الإفراج',
-                                'startPreparation' => 'بدء التجهيز',
-                                'readyToDeliver' => 'جاهز للتسليم',
-                                'outForDeliver' => 'خرج للتسليم',
-                                'delivered' => 'تم التسليم',
-                            ])
-                            ->required(),
-                        Select::make('to_field')
-                            ->label('حقل النهاية')
-                            ->options([
-                                'orderDate' => 'تاريخ الطلب',
-                                'orderForApprove' => 'طلب الموافقة',
-                                'orderApproved' => 'تمت الموافقة',
-                                'orderForPayment' => 'طلب دفع',
-                                'collectPayment' => 'تحصيل الدفع',
-                                'sellApprove' => 'موافقة البيع',
-                                'releaseApprove' => 'موافقة الإفراج',
-                                'startPreparation' => 'بدء التجهيز',
-                                'readyToDeliver' => 'جاهز للتسليم',
-                                'outForDeliver' => 'خرج للتسليم',
-                                'delivered' => 'تم التسليم',
-                            ])
-                            ->required(),
-                        DatePicker::make('from_date_start')
-                            ->label('من تاريخ (حقل البداية)')
-                            ->displayFormat('d/m/Y')
-                            ->nullable(),
-                        DatePicker::make('from_date_end')
-                            ->label('إلى تاريخ (حقل البداية)')
-                            ->displayFormat('d/m/Y')
-                            ->nullable(),
-                        DatePicker::make('to_date_start')
-                            ->label('من تاريخ (حقل النهاية)')
-                            ->displayFormat('d/m/Y')
-                            ->nullable(),
-                        DatePicker::make('to_date_end')
-                            ->label('إلى تاريخ (حقل النهاية)')
-                            ->displayFormat('d/m/Y')
-                            ->nullable(),
-                        TextInput::make('customer_name')
-                            ->label('اسم العميل')
-                            ->nullable(),
-                        TextInput::make('employee_name')
-                            ->label('اسم الموظف')
-                            ->nullable(),
-                        TextInput::make('phone')
-                            ->label('رقم هاتف العميل')
-                            ->nullable(),
+                        Select::make('from_field')->label('حقل البداية')->options([
+                            'orderDate' => 'تاريخ الطلب',
+                            'orderForApprove' => 'طلب الموافقة',
+                            'orderApproved' => 'تمت الموافقة',
+                            'orderForPayment' => 'طلب دفع',
+                            'collectPayment' => 'تحصيل الدفع',
+                            'sellApprove' => 'موافقة البيع',
+                            'releaseApprove' => 'موافقة الإفراج',
+                            'startPreparation' => 'بدء التجهيز',
+                            'readyToDeliver' => 'جاهز للتسليم',
+                            'outForDeliver' => 'خرج للتسليم',
+                            'delivered' => 'تم التسليم',
+                        ])->required(),
+                        Select::make('to_field')->label('حقل النهاية')->options([
+                            'orderDate' => 'تاريخ الطلب',
+                            'orderForApprove' => 'طلب الموافقة',
+                            'orderApproved' => 'تمت الموافقة',
+                            'orderForPayment' => 'طلب دفع',
+                            'collectPayment' => 'تحصيل الدفع',
+                            'sellApprove' => 'موافقة البيع',
+                            'releaseApprove' => 'موافقة الإفراج',
+                            'startPreparation' => 'بدء التجهيز',
+                            'readyToDeliver' => 'جاهز للتسليم',
+                            'outForDeliver' => 'خرج للتسليم',
+                            'delivered' => 'تم التسليم',
+                        ])->required(),
+                        DatePicker::make('from_date_start')->label('من تاريخ (حقل البداية)')->displayFormat('d/m/Y')->nullable(),
+                        DatePicker::make('from_date_end')->label('إلى تاريخ (حقل البداية)')->displayFormat('d/m/Y')->nullable(),
+                        DatePicker::make('to_date_start')->label('من تاريخ (حقل النهاية)')->displayFormat('d/m/Y')->nullable(),
+                        DatePicker::make('to_date_end')->label('إلى تاريخ (حقل النهاية)')->displayFormat('d/m/Y')->nullable(),
+                        TextInput::make('customer_name')->label('اسم العميل')->nullable(),
+                        TextInput::make('employee_name')->label('اسم الموظف')->nullable(),
+                        TextInput::make('phone')->label('رقم هاتف العميل')->nullable(),
                     ])
                     ->action(function (array $data) {
                         $query = Order::query()->forUser(Auth::id());
-                        
                         $fromField = $data['from_field'];
                         $toField = $data['to_field'];
-                        
-                        if (!empty($data['from_date_start'])) {
-                            $query->whereDate($fromField, '>=', $data['from_date_start']);
-                        }
-                        if (!empty($data['from_date_end'])) {
-                            $query->whereDate($fromField, '<=', $data['from_date_end']);
-                        }
-                        if (!empty($data['to_date_start'])) {
-                            $query->whereDate($toField, '>=', $data['to_date_start']);
-                        }
-                        if (!empty($data['to_date_end'])) {
-                            $query->whereDate($toField, '<=', $data['to_date_end']);
-                        }
-                        if (!empty($data['customer_name'])) {
-                            $query->where('customerName', 'like', '%' . $data['customer_name'] . '%');
-                        }
-                        if (!empty($data['employee_name'])) {
-                            $query->where('employeeName', 'like', '%' . $data['employee_name'] . '%');
-                        }
-                        if (!empty($data['phone'])) {
-                            $query->where('customerContactNumber', 'like', '%' . $data['phone'] . '%');
-                        }
-                        
+                        if (!empty($data['from_date_start'])) $query->whereDate($fromField, '>=', $data['from_date_start']);
+                        if (!empty($data['from_date_end'])) $query->whereDate($fromField, '<=', $data['from_date_end']);
+                        if (!empty($data['to_date_start'])) $query->whereDate($toField, '>=', $data['to_date_start']);
+                        if (!empty($data['to_date_end'])) $query->whereDate($toField, '<=', $data['to_date_end']);
+                        if (!empty($data['customer_name'])) $query->where('customerName', 'like', '%' . $data['customer_name'] . '%');
+                        if (!empty($data['employee_name'])) $query->where('employeeName', 'like', '%' . $data['employee_name'] . '%');
+                        if (!empty($data['phone'])) $query->where('customerContactNumber', 'like', '%' . $data['phone'] . '%');
                         $orders = $query->get();
-                        
                         if ($orders->isEmpty()) {
-                            Notification::make()
-                                ->title('لا توجد بيانات تطابق المعايير')
-                                ->danger()
-                                ->send();
+                            Notification::make()->title('لا توجد بيانات تطابق المعايير')->danger()->send();
                             return;
                         }
-                        
-                        return Excel::download(
-                            new CustomStageComparisonExport($orders, $fromField, $toField),
-                            'تقرير_مقارنة_المراحل_' . now()->format('Ymd_His') . '.xlsx'
-                        );
+                        return Excel::download(new CustomStageComparisonExport($orders, $fromField, $toField), 'تقرير_مقارنة_المراحل_' . now()->format('Ymd_His') . '.xlsx');
                     })
                     ->visible(fn () => Auth::user()->can('view_orders')),
             ])
             ->bulkActions([
-                ExportBulkAction::make()
-                    ->label('تصدير المحدد إلى Excel')
-                    ->visible(fn () => Auth::user()->can('view_orders')),
+                ExportBulkAction::make()->label('تصدير المحدد إلى Excel')->visible(fn () => Auth::user()->can('view_orders')),
                 Tables\Actions\DeleteBulkAction::make()->visible(fn () => Auth::user()->can('delete_orders')),
             ])
             ->defaultSort('created_at', 'desc')
