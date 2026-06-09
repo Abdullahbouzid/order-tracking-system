@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Widgets;
+namespace App\Filament\Resources\TopCustomersTabResource\Widgets;
 
 use App\Models\Order;
 use Filament\Tables;
