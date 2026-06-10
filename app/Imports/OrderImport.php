@@ -118,7 +118,7 @@ class OrderImport implements ToModel, WithHeadingRow, WithValidation
         if (!$value) return null;
         $value = strtolower(trim($value));
         if (in_array($value, ['cash', 'كاش'])) return 'cash';
-        if (in_array($value, ['half_half', '50% 50%', '50%'])) return 'half_half';
+        if (in_array($value, ['half_half', '50% 50%', '50%','50-50'])) return 'half_half';
         if (in_array($value, ['hawala', 'حوالة', 'تحويل'])) return 'hawala';
         return null;
     }
