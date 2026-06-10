@@ -9,10 +9,12 @@ use Maatwebsite\Excel\Concerns\WithValidation;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 class OrderImport implements ToModel, WithHeadingRow, WithValidation
 {
     protected $userId;
+    protected $importedCount = 0;
 
     public function __construct()
     {
@@ -21,44 +23,69 @@ class OrderImport implements ToModel, WithHeadingRow, WithValidation
 
     public function model(array $row)
     {
-        // تنظيف أسماء الأعمدة (إزالة المسافات الزائدة)
-        $cleanedRow = [];
-        foreach ($row as $key => $value) {
-            $cleanedRow[trim($key)] = $value;
+        static $loggedColumns = false;
+        if (!$loggedColumns) {
+            Log::info("Excel columns found: " . json_encode(array_keys($row)));
+            $loggedColumns = true;
         }
-        $row = $cleanedRow;
 
-        // تعيين الحقول من الأسماء الجديدة
-        $customerName   = $row['OUTLET'] ?? $row['outlet'] ?? null;
-        $customerContactNumber = $row['CUSTOMER CONTACT NUMBER'] ?? $row['customer_contact_number'] ?? null;
-        $orderId        = $row['ORDER ID'] ?? $row['order_id'] ?? null;
-        $orderDate      = $this->parseDateTime($row['ORDER DATE'] ?? $row['order_date'] ?? null);
-        $priceList      = $this->mapPriceList($row['PAYMENT MODE'] ?? $row['payment mode'] ?? null);
-        $cash           = floatval(str_replace(',', '', $row['CASH'] ?? $row['cash'] ?? 0));
-        $hawala         = floatval(str_replace(',', '', $row['TRANSFE5R'] ?? $row['transfer'] ?? 0));
-        $total          = $cash + $hawala; // حساب الإجمالي تلقائياً (يمكن أيضاً قراءة TOTAL من الملف لو أردت)
+        // تطبيع المفاتيح (إزالة المسافات وتحويل إلى uppercase مع شرطة سفلية)
+        $normalized = [];
+        foreach ($row as $key => $value) {
+            $clean = trim(preg_replace('/\s+/', ' ', $key));
+            $clean = strtoupper(str_replace(' ', '_', $clean));
+            $normalized[$clean] = $value;
+        }
+        $row = $normalized;
 
-        // التواريخ حسب المراحل
-        $orderForApprove   = $this->parseDateTime($row['SENT FOR APPROVAL'] ?? $row['sent_for_approval'] ?? null);
-        $orderApproved     = $this->parseDateTime($row['APPROVED'] ?? $row['approved'] ?? null);
-        $orderForPayment   = $this->parseDateTime($row['SENT TO CUSTOER FOR COLLECTION'] ?? $row['sent_to_customer_for_collection'] ?? null);
-        $collectPayment    = null; // ليس لدينا عمود مقابل، ربما يكون نفس SENT TO CUSTOMER FOR COLLECTION؟ سنتركه null
-        $sellApprove       = $this->parseDateTime($row['SENT FOR DLVRY APPROVAL'] ?? $row['sent_for_dlvry_approval'] ?? null);
-        $releaseApprove    = $this->parseDateTime($row['APPROVED FOR DLVRY'] ?? $row['approved_for_dlvry'] ?? null);
-        $startPreparation  = $this->parseDateTime($row['SENT FOR PREPARATION'] ?? $row['sent_for_preparation'] ?? null);
-        $readyToDeliver    = $this->parseDateTime($row['PREPAPRED'] ?? $row['prepared'] ?? null);
-        $outForDeliver     = $this->parseDateTime($row['SENT FOR DLVRY'] ?? $row['sent_for_dlvry'] ?? null);
-        $delivered         = $this->parseDateTime($row['DLVRD'] ?? $row['dlvrd'] ?? null);
-        $notes             = $row['ملاحظة'] ?? $row['notes'] ?? null;
+        $getValue = function($possibleKeys) use ($row) {
+            foreach ((array)$possibleKeys as $key) {
+                $keyUpper = strtoupper(trim(str_replace(' ', '_', $key)));
+                if (isset($row[$keyUpper]) && $row[$keyUpper] !== null && $row[$keyUpper] !== '') {
+                    return $row[$keyUpper];
+                }
+            }
+            return null;
+        };
 
-        // إذا لم يجد التاريخ، نستخدم الآن
+        // ORDER ID (إجباري)
+        $orderId = $getValue(['ORDER_ID', 'ORDERID', 'ORDER ID']);
+        if (!$orderId) {
+            Log::warning("Skipping row: ORDER ID missing or empty. Keys: " . json_encode(array_keys($row)));
+            return null;
+        }
+
+        // الحقول الأساسية
+        $customerName           = $getValue(['OUTLET', 'STORE']);
+        $customerContactNumber  = $getValue(['CUSTOMER_CONTACT_NUMBER', 'CONTACT_NUMBER', 'PHONE']);
+        $orderDate              = $this->parseDateTime($getValue(['ORDER_DATE', 'ORDERDATE', 'ORDER DATE']));
+        $priceList              = $getValue(['PAYMENT_MODE', 'PAYMENT_MODE', 'PAYMENT TYPE']);
+        $totalAmount            = floatval(str_replace(',', '', $getValue(['TOTAL', 'TOTAL_AMOUNT']) ?? 0));
+        $collectCashDate        = $this->parseDateTime($getValue(['CASH', 'CASH_DATE']));
+        $collectHawalaDate      = $this->parseDateTime($getValue(['TRANSFE5R', 'TRANSFER', 'TRANSFER_DATE']));
+        $employeeName           = $getValue(['NAME', 'EMPLOYEE_NAME', 'STAFF_NAME']);
+
+        // التواريخ الأخرى
+        $orderForApprove   = $this->parseDateTime($getValue(['SENT_FOR_APPROVAL']));
+        $orderApproved     = $this->parseDateTime($getValue(['APPROVED']));
+        $orderForPayment   = $this->parseDateTime($getValue(['SENT_TO_CUSTOER_FOR_COLLECTION']));
+        $sellApprove       = $this->parseDateTime($getValue(['SENT_FOR_DLVRY_APPROVAL']));
+        $releaseApprove    = $this->parseDateTime($getValue(['APPROVED_FOR_DLVRY']));
+        $startPreparation  = $this->parseDateTime($getValue(['SENT_FOR_PREPARATION']));
+        $readyToDeliver    = $this->parseDateTime($getValue(['PREPAPRED']));
+        $outForDeliver     = $this->parseDateTime($getValue(['SENT_FOR_DLVRY']));
+        $delivered         = $this->parseDateTime($getValue(['DLVRD']));
+        $notes             = $getValue(['ملاحظة', 'NOTES', 'MLAHTH']);
+
         if (!$orderDate) {
-            Log::warning("Invalid or missing order date, using current date for order: " . $orderId);
+            Log::warning("Missing order date for order ID: {$orderId}, using current date");
             $orderDate = now();
         }
 
-        // اسم الموظف (employeeName) ليس موجوداً في الأعمدة المعطاة، يمكن تعيينه لاحقاً أو تركه فارغاً
-        $employeeName = null; // يمكن تركه فارغاً، أو قراءته من عمود إضافي إن وجد
+        $cashReceived = $totalAmount;
+        $hawalaReceived = 0;
+
+        $this->importedCount++;
 
         return new Order([
             'customerName'           => $customerName,
@@ -66,15 +93,17 @@ class OrderImport implements ToModel, WithHeadingRow, WithValidation
             'orderId'                => $orderId,
             'orderDate'              => $orderDate,
             'priceList'              => $priceList,
-            'cash_received'          => $cash,
-            'hawala_received'        => $hawala,
-            'total'                  => $total,
+            'cash_received'          => $cashReceived,
+            'hawala_received'        => $hawalaReceived,
+            'total'                  => $totalAmount,
             'employeeName'           => $employeeName,
-            'currentStatus'          => $row['current_status'] ?? $row['الحالة'] ?? 'pending',
+            'currentStatus'          => $getValue(['CURRENT_STATUS', 'الحالة']) ?? 'pending',
             'orderForApprove'        => $orderForApprove,
             'orderApproved'          => $orderApproved,
             'orderForPayment'        => $orderForPayment,
-            'collectPayment'         => $collectPayment,
+            'collectPayment'         => null,
+            'collect_payment_cash'   => $collectCashDate,
+            'collect_payment_hawala' => $collectHawalaDate,
             'sellApprove'            => $sellApprove,
             'releaseApprove'         => $releaseApprove,
             'startPreparation'       => $startPreparation,
@@ -86,49 +115,68 @@ class OrderImport implements ToModel, WithHeadingRow, WithValidation
         ]);
     }
 
+    public function getImportedCount()
+    {
+        return $this->importedCount;
+    }
+
     protected function parseDateTime($value)
     {
-        if (!$value) return null;
+        if ($value === null || $value === '') return null;
+        $original = $value;
         $value = trim($value);
+
+        // 1. معالجة القيم الرقمية (Excel serial date)
+        if (is_numeric($value)) {
+            try {
+                $excelDate = ExcelDate::excelToDateTimeObject($value);
+                $carbon = Carbon::instance($excelDate);
+                // التحقق من صحة السنة (لا تقل عن 1900)
+                if ($carbon->year < 1900) {
+                    $carbon->year(now()->year);
+                }
+                return $carbon;
+            } catch (\Exception $e) {
+                Log::warning("Excel date conversion failed for numeric: {$value}");
+            }
+        }
+
+        // 2. محاولة الصيغ النصية
         $formats = [
             'd/m/Y H:i:s', 'd/m/Y H:i', 'd/m/Y',
             'Y-m-d H:i:s', 'Y-m-d',
             'm/d/Y H:i:s', 'm/d/Y',
             'd-m-Y H:i:s', 'd-m-Y',
+            'd.m.Y H:i:s', 'd.m.Y'
         ];
         foreach ($formats as $format) {
             try {
-                return Carbon::createFromFormat($format, $value);
+                $date = Carbon::createFromFormat($format, $value);
+                // تصحيح السنة إذا كانت غير منطقية (مثلاً 0206)
+                if ($date->year < 1900) {
+                    $date->year(now()->year);
+                }
+                return $date;
             } catch (\Exception $e) {
                 continue;
             }
         }
-        // دعم تنسيق Excel timestamp الرقمي
-        if (is_numeric($value)) {
-            try {
-                return Carbon::createFromTimestamp(\PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp($value));
-            } catch (\Exception $e) {}
-        }
-        Log::warning("Could not parse date: {$value}");
-        return null;
-    }
 
-    protected function mapPriceList($value)
-    {
-        if (!$value) return null;
-        $value = strtolower(trim($value));
-        if (in_array($value, ['cash', 'كاش'])) return 'cash';
-        if (in_array($value, ['half_half', '50% 50%', '50%','50-50'])) return 'half_half';
-        if (in_array($value, ['hawala', 'حوالة', 'تحويل'])) return 'hawala';
+        // 3. محاولة parse العامة (لصيغ مثل "2026-01-06 10:17:00")
+        try {
+            $date = Carbon::parse($value);
+            if ($date->year < 1900) {
+                $date->year(now()->year);
+            }
+            return $date;
+        } catch (\Exception $e) {}
+
+        Log::warning("Could not parse date: {$original}");
         return null;
     }
 
     public function rules(): array
     {
-        return [
-            'order_id' => 'required|unique:orders,orderId',
-            'customer_name' => 'nullable|string',
-            'order_date' => 'nullable',
-        ];
+        return [];
     }
 }

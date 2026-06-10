@@ -43,8 +43,8 @@ class CustomStageComparisonExport implements FromCollection, WithHeadings, WithM
             'الإجمالي',
             'اسم الموظف',
             'المنشئ',
-            'إجمالي المدة (من تاريخ الطلب → التسليم)',   // الحقل الجديد
-            'ملاحظات'                                    // الحقل الجديد
+            'إجمالي المدة (من تاريخ الطلب → التسليم)',   // التنسيق الجديد
+            'ملاحظات'
         ];
     }
 
@@ -60,7 +60,12 @@ class CustomStageComparisonExport implements FromCollection, WithHeadings, WithM
 
         // تجميع التواريخ الأخرى في نص واحد
         $otherDates = [];
-        $dateFields = ['orderDate', 'orderForApprove', 'orderApproved', 'orderForPayment', 'collectPayment', 'sellApprove', 'releaseApprove', 'startPreparation', 'readyToDeliver', 'outForDeliver', 'delivered'];
+        $dateFields = [
+            'orderDate', 'orderForApprove', 'orderApproved', 'orderForPayment',
+            'collectPayment', 'collect_payment_cash', 'collect_payment_hawala',
+            'sellApprove', 'releaseApprove', 'startPreparation', 'readyToDeliver',
+            'outForDeliver', 'delivered'
+        ];
         foreach ($dateFields as $field) {
             if ($field !== $this->fromField && $field !== $this->toField) {
                 $val = $order->$field;
@@ -83,8 +88,8 @@ class CustomStageComparisonExport implements FromCollection, WithHeadings, WithM
             number_format($order->total, 2),
             $order->employeeName,
             $order->user->name ?? '',
-            $order->total_duration ?? '',   // إجمالي المدة
-            $order->notes ?? '',            // الملاحظات
+            $order->total_duration ?? '',
+            $order->notes ?? '',
         ];
     }
 

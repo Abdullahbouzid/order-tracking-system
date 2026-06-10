@@ -15,13 +15,11 @@ return new class extends Migration
             $table->string('customerContactNumber')->nullable();
             $table->string('orderId')->unique();
             $table->timestamp('orderDate');
-            $table->enum('priceList', ['cash', 'half_half', 'hawala'])->nullable()->comment('نوع الدفع: كاش - 50% 50% - حوالة');
             $table->decimal('total', 10, 2)->nullable();
             $table->string('employeeName')->nullable(); // اسم المنشئ (من جدول users)
             $table->timestamp('orderForApprove')->nullable();
             $table->timestamp('orderApproved')->nullable();
             $table->timestamp('orderForPayment')->nullable();
-            $table->timestamp('collectPayment')->nullable();
             $table->timestamp('sellApprove')->nullable();
             $table->timestamp('releaseApprove')->nullable();
             $table->timestamp('startPreparation')->nullable();

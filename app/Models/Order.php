@@ -17,7 +17,8 @@ class Order extends Model
         'collectPayment', 'sellApprove', 'releaseApprove',
         'startPreparation', 'readyToDeliver', 'outForDeliver',
         'delivered', 'currentStatus', 'user_id',
-        'cash_received', 'hawala_received', 'notes'
+        'cash_received', 'hawala_received', 'notes',
+        'collect_payment_cash', 'collect_payment_hawala'
     ];
 
     protected $casts = [
@@ -28,16 +29,17 @@ class Order extends Model
         'orderForApprove'    => 'datetime',
         'orderApproved'      => 'datetime',
         'orderForPayment'    => 'datetime',
-        'collectPayment'     => 'datetime',
+        // 'collectPayment'     => 'datetime',
         'sellApprove'        => 'datetime',
         'releaseApprove'     => 'datetime',
         'startPreparation'   => 'datetime',
         'readyToDeliver'     => 'datetime',
         'outForDeliver'      => 'datetime',
         'delivered'          => 'datetime',
+        'collect_payment_cash' => 'datetime',
+        'collect_payment_hawala' => 'datetime',
     ];
 
-    // حساب total تلقائياً عند تغيير cash_received أو hawala_received
     public function setCashReceivedAttribute($value)
     {
         $this->attributes['cash_received'] = $value;
@@ -57,43 +59,27 @@ class Order extends Model
         $this->attributes['total'] = $cash + $hawala;
     }
 
-    // إجمالي المدة بين orderDate و delivered
     public function getTotalDurationAttribute(): string
     {
-        if (!$this->orderDate || !$this->delivered) {
-            return 'لم يكتمل';
-        }
+        if (!$this->orderDate || !$this->delivered) return 'لم يكتمل';
         $diff = $this->orderDate->diff($this->delivered);
-        $parts = [];
-        if ($diff->d > 0) $parts[] = $diff->d . ' يوم';
-        if ($diff->h > 0) $parts[] = $diff->h . ' ساعة';
-        if ($diff->i > 0) $parts[] = $diff->i . ' دقيقة';
-        return implode(' ', $parts) ?: '0 دقيقة';
+        return "عدد الأيام = {$diff->d}, عدد الساعات = {$diff->h}, عدد الدقائق = {$diff->i}, عدد الثواني = {$diff->s}";
     }
 
-    // العلاقة مع المستخدم
-    public function user()
-    {
-        return $this->belongsTo(User::class);
-    }
+    public function user() { return $this->belongsTo(User::class); }
 
-    // نطاق تصفية حسب صلاحية المستخدم
     public function scopeForUser($query, $userId)
     {
-        if (auth()->user()->hasRole('super-admin')) {
-            return $query;
-        }
+        if (auth()->user()->hasRole('super-admin')) return $query;
         return $query->where('user_id', $userId);
     }
 
-    // الوقت الإجمالي بين الإنشاء والتسليم (المراحل)
     public function getTotalTimeAttribute(): ?string
     {
         if (!$this->delivered) return null;
         return $this->formatMinutes($this->delivered->diffInMinutes($this->created_at));
     }
 
-    // تفاصيل الوقت بين كل مرحلتين
     public function getStageTimesAttribute(): array
     {
         return [
@@ -129,7 +115,6 @@ class Order extends Model
         return implode(' ', $parts) ?: '0 دقيقة';
     }
 
-    // دالة مساعدة لحساب المدة بين تاريخين (static)
     public static function calculateDuration($start, $end): string
     {
         if (!$start || !$end) return 'لم يبدأ';
@@ -146,21 +131,16 @@ class Order extends Model
         return implode(' ', $parts) ?: '0 دقيقة';
     }
 
-    // التنظيف UTF-8 (اختياري)
     public function setAttribute($key, $value)
     {
-        if (is_string($value)) {
-            $value = $this->cleanUtf8($value);
-        }
+        if (is_string($value)) $value = $this->cleanUtf8($value);
         return parent::setAttribute($key, $value);
     }
 
     public function getAttribute($key)
     {
         $value = parent::getAttribute($key);
-        if (is_string($value)) {
-            $value = $this->cleanUtf8($value);
-        }
+        if (is_string($value)) $value = $this->cleanUtf8($value);
         return $value;
     }
 

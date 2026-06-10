@@ -27,11 +27,12 @@ class FilteredOrdersExport implements FromCollection, WithHeadings, WithMapping,
     {
         return [
             '#', 'اسم العميل', 'رقم الهاتف', 'رقم الطلب (orderId)', 'تاريخ الطلب',
-            'طلب الموافقة', 'تمت الموافقة', 'طلب الدفع', 'تحصيل الدفع',
+            'طلب الموافقة', 'تمت الموافقة', 'طلب الدفع', 'تحصيل الدفع (قديم)',
+            'تحصيل كاش', 'تحصيل حوالة',
             'موافقة البيع', 'موافقة الإفراج', 'بدء التجهيز', 'جاهز للتسليم',
-            'خرج للتسليم', 'تم التسليم', 'الوقت الإجمالي', 'الحالة الحالية',
+            'خرج للتسليم', 'تم التسليم', 'الوقت الإجمالي (المراحل)', 'الحالة الحالية',
             'نوع الدفع', 'الإجمالي (LYD)', 'اسم الموظف', 'المنشئ',
-            'إجمالي المدة (من تاريخ الطلب → التسليم)', 'ملاحظات'   // الحقول الجديدة
+            'إجمالي المدة (من تاريخ الطلب → التسليم)', 'ملاحظات'
         ];
     }
 
@@ -47,6 +48,8 @@ class FilteredOrdersExport implements FromCollection, WithHeadings, WithMapping,
             $order->orderApproved ? $order->orderApproved->format('d/m/Y H:i:s') : '',
             $order->orderForPayment ? $order->orderForPayment->format('d/m/Y H:i:s') : '',
             $order->collectPayment ? $order->collectPayment->format('d/m/Y H:i:s') : '',
+            $order->collect_payment_cash ? $order->collect_payment_cash->format('d/m/Y H:i:s') : '',
+            $order->collect_payment_hawala ? $order->collect_payment_hawala->format('d/m/Y H:i:s') : '',
             $order->sellApprove ? $order->sellApprove->format('d/m/Y H:i:s') : '',
             $order->releaseApprove ? $order->releaseApprove->format('d/m/Y H:i:s') : '',
             $order->startPreparation ? $order->startPreparation->format('d/m/Y H:i:s') : '',
@@ -59,8 +62,8 @@ class FilteredOrdersExport implements FromCollection, WithHeadings, WithMapping,
             number_format($order->total, 2),
             $order->employeeName,
             $order->user->name ?? '',
-            $order->total_duration ?? '',   // إجمالي المدة
-            $order->notes ?? '',            // الملاحظات
+            $order->total_duration ?? '',   // التنسيق الجديد (أيام/ساعات/دقائق/ثواني)
+            $order->notes ?? '',
         ];
     }
 
