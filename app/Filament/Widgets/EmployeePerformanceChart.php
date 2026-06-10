@@ -4,42 +4,45 @@ namespace App\Filament\Widgets;
 
 use App\Models\Order;
 use Filament\Widgets\ChartWidget;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class EmployeePerformanceChart extends ChartWidget
 {
-    public ?array $filters = [];
     protected static ?int $sort = 5;
-    protected static ?string $heading = 'أداء الموظفين (متوسط وقت التسليم بالساعات)';
 
     public function getHeading(): string
     {
-        return 'أداء الموظفين (متوسط وقت التسليم بالساعات)';
+        return 'أداء الموظفين (متوسط وقت التسليم بالساعات) - جميع الطلبات المكتملة';
     }
 
     protected function getData(): array
     {
-        $query = Order::query()
-            ->forUser(Auth::id())
+        // استعلام مباشر بدون أي شروط إضافية
+        $data = Order::query()
             ->whereNotNull('delivered')
             ->whereNotNull('employeeName')
-            ->where('employeeName', '!=', '');
-
-        if (!empty($this->filters['status'])) {
-            $query->where('currentStatus', $this->filters['status']);
-        }
-        if (!empty($this->filters['date_from'])) {
-            $query->whereDate('created_at', '>=', $this->filters['date_from']);
-        }
-        if (!empty($this->filters['date_to'])) {
-            $query->whereDate('created_at', '<=', $this->filters['date_to']);
-        }
-
-        $data = $query->select('employeeName', DB::raw('AVG(TIMESTAMPDIFF(HOUR, created_at, delivered)) as avg_hours'))
+            ->where('employeeName', '!=', '')
+            ->select(
+                'employeeName',
+                DB::raw('AVG(TIMESTAMPDIFF(HOUR, orderDate, delivered)) as avg_hours')
+            )
             ->groupBy('employeeName')
             ->orderBy('avg_hours', 'asc')
             ->get();
+
+        // إذا لم تكن هناك بيانات، نعيد مصفوفة فارغة مع رسالة في العنوان
+        if ($data->isEmpty()) {
+            return [
+                'datasets' => [
+                    [
+                        'label' => 'لا توجد بيانات',
+                        'data' => [],
+                        'backgroundColor' => '#ccc',
+                    ]
+                ],
+                'labels' => [],
+            ];
+        }
 
         $labels = $data->pluck('employeeName')->toArray();
         $values = $data->pluck('avg_hours')->map(fn($v) => round($v, 1))->toArray();

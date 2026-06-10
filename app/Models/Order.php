@@ -18,7 +18,8 @@ class Order extends Model
         'startPreparation', 'readyToDeliver', 'outForDeliver',
         'delivered', 'currentStatus', 'user_id',
         'cash_received', 'hawala_received', 'notes',
-        'collect_payment_cash', 'collect_payment_hawala'
+        'collect_payment_cash', 'collect_payment_hawala',
+        'orderStatus'  // ← الحقل الجديد
     ];
 
     protected $casts = [
@@ -29,7 +30,6 @@ class Order extends Model
         'orderForApprove'    => 'datetime',
         'orderApproved'      => 'datetime',
         'orderForPayment'    => 'datetime',
-        // 'collectPayment'     => 'datetime',
         'sellApprove'        => 'datetime',
         'releaseApprove'     => 'datetime',
         'startPreparation'   => 'datetime',
@@ -39,6 +39,19 @@ class Order extends Model
         'collect_payment_cash' => 'datetime',
         'collect_payment_hawala' => 'datetime',
     ];
+
+    // تحديث orderStatus تلقائياً عند الحفظ (اختياري)
+    protected static function booted()
+    {
+        static::saving(function ($order) {
+            if ($order->delivered) {
+                $order->orderStatus = 'completed';
+            } elseif ($order->orderApproved && !$order->delivered && $order->orderStatus !== 'cancelled') {
+                $order->orderStatus = 'in_progress';
+            }
+            // إذا كان orderStatus = cancelled لا نغيره تلقائياً
+        });
+    }
 
     public function setCashReceivedAttribute($value)
     {

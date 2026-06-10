@@ -10,12 +10,13 @@ class PaymentTypeChart extends ChartWidget
 {
     public ?array $filters = [];
     protected static ?int $sort = 6;
-    protected static ?string $heading = 'نوع الدفع';
+    protected static ?string $heading = 'توزيع الطلبات حسب نوع الدفع';
 
     protected function getData(): array
     {
         $query = Order::query()->forUser(Auth::id());
 
+        // تطبيق الفلاتر
         if (!empty($this->filters['status'])) {
             $query->where('currentStatus', $this->filters['status']);
         }
@@ -26,29 +27,48 @@ class PaymentTypeChart extends ChartWidget
             $query->whereDate('created_at', '<=', $this->filters['date_to']);
         }
 
-        $counts = $query->selectRaw('priceList, count(*) as total')
+        // حساب عدد الطلبات لكل نوع دفع من حقل priceList (تجاهل القيم الفارغة)
+        $counts = $query->whereNotNull('priceList')
+            ->selectRaw('priceList, count(*) as total')
             ->groupBy('priceList')
-            ->pluck('total', 'priceList');
+            ->pluck('total', 'priceList')
+            ->toArray();
 
-        $labels = [
-            'cash' => 'كاش',
+        // ترجمة القيم المخزنة في priceList إلى أسماء عربية للعرض
+        $mapping = [
+            'cash'      => 'كاش',
+            'hawala'    => 'حوالة',
             'half_half' => '50% 50%',
-            'hawala' => 'حوالة',
         ];
-        $data = [
-            $labels['cash'] => $counts['cash'] ?? 0,
-            $labels['half_half'] => $counts['half_half'] ?? 0,
-            $labels['hawala'] => $counts['hawala'] ?? 0,
-        ];
+
+        $labels = [];
+        $data = [];
+
+        // ترتيب محدد: كاش، نصف نصف، حوالة (حسب رغبتك)
+        $order = ['cash', 'half_half', 'hawala'];
+        foreach ($order as $key) {
+            if (isset($counts[$key]) && $counts[$key] > 0) {
+                $labels[] = $mapping[$key] ?? $key; // في حالة وجود مفتاح غير متوقع
+                $data[] = $counts[$key];
+            }
+        }
+
+        // إضافة أي أنواع دفع أخرى غير متوقعة (إذا وجدت)
+        foreach ($counts as $key => $count) {
+            if (!in_array($key, $order) && $count > 0) {
+                $labels[] = $key; // يمكن ترجمتها حسب الحاجة
+                $data[] = $count;
+            }
+        }
 
         return [
             'datasets' => [
                 [
-                    'data' => array_values($data),
-                    'backgroundColor' => ['#10b981', '#f59e0b', '#ef4444'],
+                    'data' => $data,
+                    'backgroundColor' => ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'],
                 ],
             ],
-            'labels' => array_keys($data),
+            'labels' => $labels,
         ];
     }
 

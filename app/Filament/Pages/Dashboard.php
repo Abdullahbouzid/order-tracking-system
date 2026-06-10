@@ -19,7 +19,6 @@ use App\Filament\Widgets\EmployeePerformanceChart;
 use App\Filament\Widgets\PaymentTypeChart;
 use App\Filament\Widgets\TopCustomersTable;
 use App\Filament\Widgets\PeriodComparisonChart;
-
 class Dashboard extends BaseDashboard
 {
     use HasFiltersForm;
@@ -67,29 +66,75 @@ public function getWidgets(): array
         PeriodComparisonChart::make(['filters' => $filters]), // جديد
         OrderStageDelayChart::make(['filters' => $filters]),
         OrderStatusChart::make(['filters' => $filters]),
-        OrderTrendChart::make(['filters' => $filters]),
+        // OrderTrendChart::make(['filters' => $filters]),
         EmployeePerformanceChart::make(['filters' => $filters]),  // جديد
         PaymentTypeChart::make(['filters' => $filters]),         // جديد
-        TopCustomersTable::make(['filters' => $filters]),        // جديد
+        // TopCustomersTable::make(['filters' => $filters]),        // جديد
     ];
 }
 
-protected function getHeaderActions(): array
-{
-    return [
-        Action::make('export_pdf')
-            ->label('تصدير تقرير PDF')
-            ->icon('heroicon-o-document-text')
-            ->action(function () {
-                $filters = $this->filters;
-                $query = Order::query()->forUser(Auth::id());
-                if (!empty($filters['status'])) $query->where('currentStatus', $filters['status']);
-                if (!empty($filters['date_from'])) $query->whereDate('created_at', '>=', $filters['date_from']);
-                if (!empty($filters['date_to'])) $query->whereDate('created_at', '<=', $filters['date_to']);
-                $orders = $query->get();
-                $pdf = Pdf::loadView('reports.full-dashboard-report', ['orders' => $orders, 'filters' => $filters]);
-                return response()->streamDownload(fn() => print($pdf->output()), 'dashboard-report.pdf');
-            }),
-    ];
-}
+// protected function getHeaderActions(): array
+// {
+//     return [
+//         Action::make('export_pdf')
+//             ->label('تصدير تقرير PDF')
+//             ->icon('heroicon-o-document-text')
+//             ->action(function () {
+//                 $filters = $this->filters;
+//                 $query = Order::query()->forUser(Auth::id());
+//                 if (!empty($filters['status'])) $query->where('currentStatus', $filters['status']);
+//                 if (!empty($filters['date_from'])) $query->whereDate('created_at', '>=', $filters['date_from']);
+//                 if (!empty($filters['date_to'])) $query->whereDate('created_at', '<=', $filters['date_to']);
+//                 $orders = $query->get();
+//                 $pdf = Pdf::loadView('reports.full-dashboard-report', ['orders' => $orders, 'filters' => $filters]);
+//                 return response()->streamDownload(fn() => print($pdf->output()), 'dashboard-report.pdf');
+//             }),
+//     ];
+// }
+//   protected function getFilters(): array
+//     {
+//         return [
+//             DatePicker::make('comparison_date_from')
+//                 ->label('بداية فترة المقارنة'),
+//             DatePicker::make('comparison_date_to')
+//                 ->label('نهاية فترة المقارنة'),
+//             Select::make('status')
+//                 ->label('حالة الطلب')
+//                 ->options([
+//                     'pending'   => 'قيد الانتظار',
+//                     'completed' => 'مكتمل',
+//                     'cancelled' => 'ملغي',
+//                 ])
+//                 ->placeholder('جميع الحالات'),
+//         ];
+//     }
+
+  protected function getHeaderActions(): array
+    {
+        return [
+            \Filament\Actions\Action::make('filter')
+                ->label('فلاتر عامة')
+                ->form([
+                    DatePicker::make('date_from'),
+                    DatePicker::make('date_to'),
+                    Select::make('status')
+                        ->options([
+                            '' => 'الكل',
+                            'pending' => 'قيد الانتظار',
+                            'completed' => 'مكتمل',
+                            'cancelled' => 'ملغي',
+                        ]),
+                    Select::make('interval')
+                        ->options([
+                            'day' => 'يومي',
+                            'week' => 'أسبوعي',
+                            'month' => 'شهري',
+                        ])->default('day'),
+                ])
+                ->action(function (array $data) {
+                    $this->filters = $data;
+                    $this->dispatch('refresh-widgets');
+                }),
+        ];
+    }
 }

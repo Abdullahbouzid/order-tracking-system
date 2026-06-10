@@ -26,6 +26,7 @@ use App\Exports\CustomStageComparisonExport;
 use App\Imports\OrderImport;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Filament\Tables\Columns\SelectColumn; // ✅ أضف هذا السطر
 
 class OrderResource extends Resource
 {
@@ -176,6 +177,15 @@ class OrderResource extends Resource
                             'collectPayment'=>'تم تحصيل الدفع','sellApprove'=>'موافقة البيع','releaseApprove'=>'موافقة الإفراج','startPreparation'=>'بدء التجهيز',
                             'readyToDeliver'=>'جاهز للتسليم','outForDeliver'=>'خرج للتسليم','delivered'=>'تم التسليم',
                         ])->required(),
+                        Forms\Components\Select::make('orderStatus')
+                            ->label('حالة الطلبية')
+                            ->options([
+                                'in_progress' => 'قيد التنفيذ',
+                                'cancelled'   => 'ملغية',
+                                'completed'   => 'مكتملة',
+                            ])
+                            ->nullable()
+                            ->helperText('تتغير تلقائياً عند الموافقة (قيد التنفيذ) أو التسليم (مكتملة)'),
                         Forms\Components\Textarea::make('notes')->label('ملاحظات')->rows(3)->nullable(),
                     ])->columns(2),
 
@@ -212,7 +222,7 @@ class OrderResource extends Resource
                 Tables\Columns\TextColumn::make('hawala_received')->label('المبلغ المستلم (حوالة)')->money('LYD')->toggleable(),
                 Tables\Columns\TextColumn::make('total')->label('الإجمالي')->money('LYD')->toggleable(),
                 Tables\Columns\TextColumn::make('currentStatus')
-                    ->label('الحالة')
+                    ->label('حالة المرحلة')
                     ->badge()
                     ->colors([
                         'secondary' => 'pending',
@@ -244,6 +254,34 @@ class OrderResource extends Resource
                         };
                     })
                     ->toggleable(),
+                
+                // ✅ عمود حالة الطلبية أصبح قابلاً للتعديل المباشر
+                SelectColumn::make('orderStatus')
+                    ->label('حالة الطلبية')
+                    ->options([
+                        'in_progress' => 'قيد التنفيذ',
+                        'cancelled'   => 'ملغية',
+                        'completed'   => 'مكتملة',
+                    ])
+                    ->disabled(fn () => !Auth::user()->can('edit_orders'))
+                    ->updateStateUsing(function ($record, $state) {
+                        $record->update(['orderStatus' => $state]);
+                    })
+                    ->afterStateUpdated(function ($record) {
+                        Notification::make()
+                            ->title('تم تحديث حالة الطلبية')
+                            ->body("أصبحت الحالة: " . match($record->orderStatus) {
+                                'in_progress' => 'قيد التنفيذ',
+                                'cancelled' => 'ملغية',
+                                'completed' => 'مكتملة',
+                                default => $record->orderStatus
+                            })
+                            ->success()
+                            ->send();
+                    })
+                    ->extraAttributes(['style' => 'min-width: 130px;'])
+                    ->toggleable(),
+                
                 Tables\Columns\TextColumn::make('collect_payment_cash')->label('تحصيل كاش')->dateTime('d/m/Y H:i:s')->toggleable(),
                 Tables\Columns\TextColumn::make('collect_payment_hawala')->label('تحصيل حوالة')->dateTime('d/m/Y H:i:s')->toggleable(),
                 Tables\Columns\TextColumn::make('orderForApprove')->label('طلب الموافقة')->dateTime('d/m/Y H:i:s')->toggleable(),
@@ -263,6 +301,13 @@ class OrderResource extends Resource
                 Tables\Filters\SelectFilter::make('user_id')->label('المنشئ (user)')->options(fn()=>User::pluck('name','id'))->visible(fn()=>auth()->user()->hasRole('super-admin')),
                 Tables\Filters\SelectFilter::make('employeeName')->label('اسم الموظف')->options(fn()=>Order::query()->whereNotNull('employeeName')->distinct()->pluck('employeeName','employeeName'))->searchable(),
                 Tables\Filters\SelectFilter::make('priceList')->label('نوع الدفع')->options(fn()=>Order::query()->whereNotNull('priceList')->distinct()->pluck('priceList','priceList')),
+                Tables\Filters\SelectFilter::make('orderStatus')
+                    ->label('حالة الطلبية')
+                    ->options([
+                        'in_progress' => 'قيد التنفيذ',
+                        'cancelled'   => 'ملغية',
+                        'completed'   => 'مكتملة',
+                    ]),
                 Tables\Filters\Filter::make('cash_range')
                     ->form([TextInput::make('cash_from')->numeric(), TextInput::make('cash_to')->numeric()])
                     ->query(function (Builder $query, array $data) {
@@ -284,7 +329,7 @@ class OrderResource extends Resource
                             ->when($data['total_from'], fn($q, $v) => $q->where('total', '>=', $v))
                             ->when($data['total_to'], fn($q, $v) => $q->where('total', '<=', $v));
                     }),
-                Tables\Filters\SelectFilter::make('currentStatus')->label('الحالة')->options([
+                Tables\Filters\SelectFilter::make('currentStatus')->label('حالة المرحلة')->options([
                     'pending'=>'قيد الانتظار','orderForApprove'=>'طلب موافقة','orderApproved'=>'تمت الموافقة','orderForPayment'=>'طلب دفع',
                     'collectPayment'=>'تم تحصيل الدفع','sellApprove'=>'موافقة البيع','releaseApprove'=>'موافقة الإفراج','startPreparation'=>'بدء التجهيز',
                     'readyToDeliver'=>'جاهز للتسليم','outForDeliver'=>'خرج للتسليم','delivered'=>'تم التسليم',
@@ -313,16 +358,58 @@ class OrderResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ActionGroup::make([
-                    Tables\Actions\Action::make('toApprove')->label('طلب موافقة')->icon('heroicon-o-clock')->color('warning')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='pending' && Auth::user()->can('approve_order'))->action(fn(Order $r)=>$r->update(['orderForApprove'=>now(),'currentStatus'=>'orderForApprove'])),
-                    Tables\Actions\Action::make('approve')->label('موافقة')->icon('heroicon-o-check-circle')->color('success')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='orderForApprove' && Auth::user()->can('approve_order'))->action(fn(Order $r)=>$r->update(['orderApproved'=>now(),'currentStatus'=>'orderApproved'])),
-                    Tables\Actions\Action::make('requestPayment')->label('طلب دفع')->icon('heroicon-o-currency-dollar')->color('warning')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='orderApproved' && Auth::user()->can('process_payment'))->action(fn(Order $r)=>$r->update(['orderForPayment'=>now(),'currentStatus'=>'orderForPayment'])),
-                    Tables\Actions\Action::make('collectPayment')->label('تحصيل الدفع')->icon('heroicon-o-banknotes')->color('success')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='orderForPayment' && Auth::user()->can('process_payment'))->action(fn(Order $r)=>$r->update(['collectPayment'=>now(),'currentStatus'=>'collectPayment'])),
-                    Tables\Actions\Action::make('sellApprove')->label('موافقة البيع')->icon('heroicon-o-check')->color('success')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='collectPayment' && Auth::user()->can('release_order'))->action(fn(Order $r)=>$r->update(['sellApprove'=>now(),'currentStatus'=>'sellApprove'])),
-                    Tables\Actions\Action::make('release')->label('إفراج')->icon('heroicon-o-finger-print')->color('primary')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='sellApprove' && Auth::user()->can('release_order'))->action(fn(Order $r)=>$r->update(['releaseApprove'=>now(),'currentStatus'=>'releaseApprove'])),
-                    Tables\Actions\Action::make('prepare')->label('بدء التجهيز')->icon('heroicon-o-cog')->color('info')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='releaseApprove' && Auth::user()->can('prepare_order'))->action(fn(Order $r)=>$r->update(['startPreparation'=>now(),'currentStatus'=>'startPreparation'])),
-                    Tables\Actions\Action::make('readyToDeliver')->label('جاهز للتسليم')->icon('heroicon-o-truck')->color('success')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='startPreparation' && Auth::user()->can('prepare_order'))->action(fn(Order $r)=>$r->update(['readyToDeliver'=>now(),'currentStatus'=>'readyToDeliver'])),
-                    Tables\Actions\Action::make('outForDeliver')->label('خرج للتسليم')->icon('heroicon-o-map-pin')->color('warning')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='readyToDeliver' && Auth::user()->can('deliver_order'))->action(fn(Order $r)=>$r->update(['outForDeliver'=>now(),'currentStatus'=>'outForDeliver'])),
-                    Tables\Actions\Action::make('deliver')->label('تسليم')->icon('heroicon-o-check')->color('success')->requiresConfirmation()->visible(fn(Order $r)=>$r->currentStatus==='outForDeliver' && Auth::user()->can('deliver_order'))->action(fn(Order $r)=>$r->update(['delivered'=>now(),'currentStatus'=>'delivered'])),
+                    Tables\Actions\Action::make('toApprove')->label('طلب موافقة')->icon('heroicon-o-clock')->color('warning')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='pending' && Auth::user()->can('approve_order'))
+                        ->action(fn(Order $r)=>$r->update(['orderForApprove'=>now(),'currentStatus'=>'orderForApprove'])),
+                    Tables\Actions\Action::make('approve')->label('موافقة')->icon('heroicon-o-check-circle')->color('success')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='orderForApprove' && Auth::user()->can('approve_order'))
+                        ->action(fn(Order $r)=>$r->update([
+                            'orderApproved' => now(),
+                            'currentStatus' => 'orderApproved',
+                            'orderStatus' => 'in_progress'
+                        ])),
+                    Tables\Actions\Action::make('requestPayment')->label('طلب دفع')->icon('heroicon-o-currency-dollar')->color('warning')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='orderApproved' && Auth::user()->can('process_payment'))
+                        ->action(fn(Order $r)=>$r->update(['orderForPayment'=>now(),'currentStatus'=>'orderForPayment'])),
+                    Tables\Actions\Action::make('collectPayment')->label('تحصيل الدفع')->icon('heroicon-o-banknotes')->color('success')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='orderForPayment' && Auth::user()->can('process_payment'))
+                        ->action(fn(Order $r)=>$r->update(['collectPayment'=>now(),'currentStatus'=>'collectPayment'])),
+                    Tables\Actions\Action::make('sellApprove')->label('موافقة البيع')->icon('heroicon-o-check')->color('success')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='collectPayment' && Auth::user()->can('release_order'))
+                        ->action(fn(Order $r)=>$r->update(['sellApprove'=>now(),'currentStatus'=>'sellApprove'])),
+                    Tables\Actions\Action::make('release')->label('إفراج')->icon('heroicon-o-finger-print')->color('primary')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='sellApprove' && Auth::user()->can('release_order'))
+                        ->action(fn(Order $r)=>$r->update(['releaseApprove'=>now(),'currentStatus'=>'releaseApprove'])),
+                    Tables\Actions\Action::make('prepare')->label('بدء التجهيز')->icon('heroicon-o-cog')->color('info')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='releaseApprove' && Auth::user()->can('prepare_order'))
+                        ->action(fn(Order $r)=>$r->update(['startPreparation'=>now(),'currentStatus'=>'startPreparation'])),
+                    Tables\Actions\Action::make('readyToDeliver')->label('جاهز للتسليم')->icon('heroicon-o-truck')->color('success')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='startPreparation' && Auth::user()->can('prepare_order'))
+                        ->action(fn(Order $r)=>$r->update(['readyToDeliver'=>now(),'currentStatus'=>'readyToDeliver'])),
+                    Tables\Actions\Action::make('outForDeliver')->label('خرج للتسليم')->icon('heroicon-o-map-pin')->color('warning')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='readyToDeliver' && Auth::user()->can('deliver_order'))
+                        ->action(fn(Order $r)=>$r->update(['outForDeliver'=>now(),'currentStatus'=>'outForDeliver'])),
+                    Tables\Actions\Action::make('deliver')->label('تسليم')->icon('heroicon-o-check')->color('success')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->currentStatus==='outForDeliver' && Auth::user()->can('deliver_order'))
+                        ->action(fn(Order $r)=>$r->update([
+                            'delivered' => now(),
+                            'currentStatus' => 'delivered',
+                            'orderStatus' => 'completed'
+                        ])),
+                    Tables\Actions\Action::make('cancel')->label('إلغاء الطلب')->icon('heroicon-o-x-circle')->color('danger')
+                        ->requiresConfirmation()
+                        ->visible(fn(Order $r)=>$r->orderStatus !== 'cancelled' && Auth::user()->can('edit_orders'))
+                        ->action(fn(Order $r)=>$r->update(['orderStatus'=>'cancelled'])),
                 ])->button()->label('تغيير الحالة'),
                 Tables\Actions\EditAction::make()->visible(fn()=>Auth::user()->can('edit_orders')),
                 Tables\Actions\DeleteAction::make()->visible(fn()=>Auth::user()->can('delete_orders')),
@@ -385,68 +472,44 @@ class OrderResource extends Resource
                         if(!file_exists($templatePath)) self::generateTemplateFile($templatePath);
                         return response()->download($templatePath,'import_template.xlsx');
                     }),
-Tables\Actions\Action::make('import_excel')
-    ->label('استيراد من Excel')
-    ->icon('heroicon-o-arrow-up-tray')
-    ->color('success')
-    ->form([
-        Forms\Components\FileUpload::make('file')
-            ->label('ملف Excel')
-            ->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'])
-            ->required()
-            ->helperText('يرجى تحميل ملف Excel بصيغة .xlsx أو .xls مطابق للقالب'),
-    ])
-    ->action(function (array $data) {
-        $fileId = $data['file'] ?? null;
-        if (!$fileId) {
-            Notification::make()->title('الملف غير موجود')->danger()->send();
-            return;
-        }
-        $baseName = basename($fileId);
-        $possiblePaths = [
-            storage_path('app/public/' . $baseName),
-            storage_path('app/livewire-tmp/' . $baseName),
-            storage_path('livewire-tmp/' . $baseName),
-            storage_path('app/imports_temp/' . $baseName),
-        ];
-        $foundPath = null;
-        foreach ($possiblePaths as $path) {
-            if (file_exists($path)) {
-                $foundPath = $path;
-                break;
-            }
-        }
-        if (!$foundPath) {
-            Notification::make()->title('لم يتم العثور على الملف المرفوع')->body("تم البحث في:\n" . implode("\n", $possiblePaths))->danger()->send();
-            return;
-        }
-        try {
-            $import = new OrderImport();
-            Excel::import($import, $foundPath);
-            $count = $import->getImportedCount();
-            if ($count == 0) {
-                Notification::make()
-                    ->title('لم يتم استيراد أي صف')
-                    ->body('تحقق من أن عمود "ORDER ID" موجود وغير فارغ. راجع ملف logs لمزيد من التفاصيل.')
-                    ->warning()
-                    ->send();
-                // يمكنك إظهار أسماء الأعمدة التي تم اكتشافها (اختياري)
-                // سجلت في الـ log تلقائياً
-            } else {
-                Notification::make()
-                    ->title('تم الاستيراد بنجاح')
-                    ->body("تم استيراد {$count} طلب")
-                    ->success()
-                    ->send();
-            }
-            @unlink($foundPath);
-        } catch (\Exception $e) {
-            Notification::make()
-                ->title('فشل الاستيراد: ' . $e->getMessage())
-                ->danger()
-                ->send();
-        }
-    }),
+
+                Tables\Actions\Action::make('import_excel')->label('استيراد من Excel')->icon('heroicon-o-arrow-up-tray')->color('success')
+                    ->form([Forms\Components\FileUpload::make('file')->label('ملف Excel')->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel'])->required()->helperText('يرجى تحميل ملف Excel بصيغة .xlsx أو .xls مطابق للقالب')])
+                    ->action(function($data){
+                        $fileId=$data['file']??null;
+                        if(!$fileId){Notification::make()->title('الملف غير موجود')->danger()->send();return;}
+                        $baseName = basename($fileId);
+                        $possiblePaths = [
+                            storage_path('app/public/' . $baseName),
+                            storage_path('app/livewire-tmp/' . $baseName),
+                            storage_path('livewire-tmp/' . $baseName),
+                            storage_path('app/imports_temp/' . $baseName),
+                        ];
+                        $foundPath = null;
+                        foreach($possiblePaths as $path){
+                            if(file_exists($path)){
+                                $foundPath = $path;
+                                break;
+                            }
+                        }
+                        if(!$foundPath){
+                            Notification::make()->title('لم يتم العثور على الملف المرفوع')->body("تم البحث في:\n".implode("\n",$possiblePaths))->danger()->send();
+                            return;
+                        }
+                        try{
+                            $import = new OrderImport();
+                            Excel::import($import, $foundPath);
+                            $count = $import->getImportedCount();
+                            if($count == 0){
+                                Notification::make()->title('لم يتم استيراد أي صف')->body('تحقق من أن عمود "ORDER ID" موجود وغير فارغ.')->warning()->send();
+                            } else {
+                                Notification::make()->title('تم الاستيراد بنجاح')->body("تم استيراد {$count} طلب")->success()->send();
+                            }
+                            @unlink($foundPath);
+                        }catch(\Exception $e){
+                            Notification::make()->title('فشل الاستيراد: '.$e->getMessage())->danger()->send();
+                        }
+                    }),
             ])
             ->bulkActions([ExportBulkAction::make()->label('تصدير المحدد إلى Excel')->visible(fn()=>Auth::user()->can('view_orders')),Tables\Actions\DeleteBulkAction::make()->visible(fn()=>Auth::user()->can('delete_orders'))])
             ->defaultSort('created_at','desc')
