@@ -18,6 +18,7 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\FilteredOrdersExport;
@@ -49,7 +50,7 @@ class OrderResource extends Resource
     }
 
     /**
-     * دالة مساعدة لإنشاء حقل DateTimePicker مع زر "خذ الوقت الحالي"
+     * دالة مساعدة لإنشاء حقل DateTimePicker مع زر "خذ الوقت الحالي" فقط
      */
     protected static function makeDateTimeField(string $name, string $label, string $permission = 'set_stage_timestamp'): DateTimePicker
     {
@@ -98,7 +99,7 @@ class OrderResource extends Resource
     }
 
     /**
-     * إنشاء ملف قالب Excel للاستيراد
+     * إنشاء ملف قالب Excel للاستيراد (بأعمدة مطابقة للصيغة المطلوبة)
      */
     protected static function generateTemplateFile($path): void
     {
@@ -111,41 +112,53 @@ class OrderResource extends Resource
         $sheet = $spreadsheet->getActiveSheet();
 
         $headers = [
-            'A1' => 'customer_name',
-            'B1' => 'customer_contact_number',
-            'C1' => 'order_id',
-            'D1' => 'order_date',
-            'E1' => 'price_list',
-            'F1' => 'cash_received',
-            'G1' => 'hawala_received',
-            'H1' => 'employee_name',
-            'I1' => 'current_status',
-            'J1' => 'order_for_approve',
-            'K1' => 'order_approved',
-            'L1' => 'order_for_payment',
-            'M1' => 'collect_payment',
-            'N1' => 'sell_approve',
-            'O1' => 'release_approve',
-            'P1' => 'start_preparation',
-            'Q1' => 'ready_to_deliver',
-            'R1' => 'out_for_deliver',
-            'S1' => 'delivered',
+            'A1' => 'ORDER ID',
+            'B1' => 'OUTLET',
+            'C1' => 'PAYMENT MODE',
+            'D1' => 'CUSTOMER CONTACT NUMBER',
+            'E1' => 'NAME',
+            'F1' => 'ORDER DATE',
+            'G1' => 'TOTAL',
+            'H1' => 'SENT FOR APPROVAL',
+            'I1' => 'APPROVED',
+            'J1' => 'SENT TO CUSTOER FOR COLLECTION',
+            'K1' => 'CASH',
+            'L1' => 'TRANSFE5R',
+            'M1' => 'SENT FOR DLVRY APPROVAL',
+            'N1' => 'APPROVED FOR DLVRY',
+            'O1' => 'SENT FOR PREPARATION',
+            'P1' => 'PREPAPRED',
+            'Q1' => 'SENT FOR DLVRY',
+            'R1' => 'DLVRD',
+            'S1' => 'TOTAL TIME ELAPSED',
+            'T1' => 'ملاحظة',
         ];
 
         foreach ($headers as $cell => $value) {
             $sheet->setCellValue($cell, $value);
         }
 
-        // صف نموذجي
-        $sheet->setCellValue('A2', 'John Doe');
-        $sheet->setCellValue('B2', '123456789');
-        $sheet->setCellValue('C2', 'ORD-001');
-        $sheet->setCellValue('D2', '01/01/2025 10:00:00');
-        $sheet->setCellValue('E2', 'cash');
-        $sheet->setCellValue('F2', '100');
-        $sheet->setCellValue('G2', '0');
-        $sheet->setCellValue('H2', 'Employee Name');
-        $sheet->setCellValue('I2', 'pending');
+        // صف نموذجي (مثال)
+        $sheet->setCellValue('A2', 'ORD-001');
+        $sheet->setCellValue('B2', 'مقهى السلام');
+        $sheet->setCellValue('C2', 'cash');
+        $sheet->setCellValue('D2', '912345678');
+        $sheet->setCellValue('E2', 'John Doe');
+        $sheet->setCellValue('F2', '01/01/2025 10:00:00');
+        $sheet->setCellValue('G2', '100');
+        $sheet->setCellValue('H2', '01/01/2025 10:05:00');
+        $sheet->setCellValue('I2', '01/01/2025 10:10:00');
+        $sheet->setCellValue('J2', '01/01/2025 10:15:00');
+        $sheet->setCellValue('K2', '60');
+        $sheet->setCellValue('L2', '40');
+        $sheet->setCellValue('M2', '01/01/2025 10:20:00');
+        $sheet->setCellValue('N2', '01/01/2025 10:25:00');
+        $sheet->setCellValue('O2', '01/01/2025 10:30:00');
+        $sheet->setCellValue('P2', '01/01/2025 10:35:00');
+        $sheet->setCellValue('Q2', '01/01/2025 10:40:00');
+        $sheet->setCellValue('R2', '01/01/2025 10:45:00');
+        $sheet->setCellValue('S2', '0 يوم 0 ساعة 45 دقيقة');
+        $sheet->setCellValue('T2', 'ملاحظات تجريبية');
 
         $writer = new Xlsx($spreadsheet);
         $writer->save($path);
@@ -225,15 +238,19 @@ class OrderResource extends Resource
                                 'delivered'          => 'تم التسليم',
                             ])
                             ->required(),
+                        Forms\Components\Textarea::make('notes')
+                            ->label('ملاحظات')
+                            ->rows(3)
+                            ->nullable(),
                     ])->columns(2),
 
                 Forms\Components\Card::make()
                     ->schema([
-                        self::makeDateTimeFieldWithSendPulseLink('orderForApprove', 'طلب الموافقة'),
+                        self::makeDateTimeField('orderForApprove', 'طلب الموافقة'),
                         self::makeDateTimeField('orderApproved', 'تمت الموافقة'),
                         self::makeDateTimeFieldWithSendPulseLink('orderForPayment', 'طلب الدفع'),
                         self::makeDateTimeField('collectPayment', 'تحصيل الدفع'),
-                        self::makeDateTimeField('sellApprove', 'موافقة البيع'),
+                        self::makeDateTimeFieldWithSendPulseLink('sellApprove', 'موافقة البيع'),
                         self::makeDateTimeField('releaseApprove', 'موافقة الإفراج'),
                         self::makeDateTimeField('startPreparation', 'بدء التجهيز'),
                         self::makeDateTimeField('readyToDeliver', 'جاهز للتسليم'),
@@ -351,12 +368,17 @@ class OrderResource extends Resource
                     ->dateTime('d/m/Y H:i:s')
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('total_time')
-                    ->label('الوقت الإجمالي')
+                    ->label('الوقت الإجمالي (المراحل)')
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('تاريخ الإنشاء')
                     ->dateTime('d/m/Y H:i:s')
                     ->sortable()
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('notes')
+                    ->label('ملاحظات')
+                    ->limit(50)
+                    ->tooltip(fn ($state) => $state)
                     ->toggleable(),
             ])
             ->filters([
@@ -364,36 +386,33 @@ class OrderResource extends Resource
                     ->label('المنشئ (user)')
                     ->options(fn () => User::pluck('name', 'id')->toArray())
                     ->visible(fn () => auth()->user()->hasRole('super-admin')),
+                // ⚠️ تم إصلاح هذا الفلتر: إضافة whereNotNull لتجنب القيم null
                 Tables\Filters\SelectFilter::make('employeeName')
                     ->label('اسم الموظف')
-                    ->options(fn () => Order::query()->distinct()->pluck('employeeName', 'employeeName')->toArray())
+                    ->options(fn () => Order::query()
+                        ->whereNotNull('employeeName')
+                        ->distinct()
+                        ->pluck('employeeName', 'employeeName')
+                        ->toArray()
+                    )
                     ->searchable(),
                 Tables\Filters\SelectFilter::make('priceList')
                     ->label('نوع الدفع')
                     ->options(['cash' => 'كاش', 'half_half' => '50% 50%', 'hawala' => 'حوالة']),
                 Tables\Filters\Filter::make('cash_range')
-                    ->form([
-                        Forms\Components\TextInput::make('cash_from')->label('المبلغ المستلم (كاش) من')->numeric(),
-                        Forms\Components\TextInput::make('cash_to')->label('إلى')->numeric(),
-                    ])
+                    ->form([TextInput::make('cash_from')->numeric(), TextInput::make('cash_to')->numeric()])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['cash_from'], fn ($q, $v) => $q->where('cash_received', '>=', $v))
                         ->when($data['cash_to'], fn ($q, $v) => $q->where('cash_received', '<=', $v))
                     ),
                 Tables\Filters\Filter::make('hawala_range')
-                    ->form([
-                        Forms\Components\TextInput::make('hawala_from')->label('المبلغ المستلم (حوالة) من')->numeric(),
-                        Forms\Components\TextInput::make('hawala_to')->label('إلى')->numeric(),
-                    ])
+                    ->form([TextInput::make('hawala_from')->numeric(), TextInput::make('hawala_to')->numeric()])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['hawala_from'], fn ($q, $v) => $q->where('hawala_received', '>=', $v))
                         ->when($data['hawala_to'], fn ($q, $v) => $q->where('hawala_received', '<=', $v))
                     ),
                 Tables\Filters\Filter::make('total_range')
-                    ->form([
-                        Forms\Components\TextInput::make('total_from')->label('الإجمالي من')->numeric(),
-                        Forms\Components\TextInput::make('total_to')->label('الإجمالي إلى')->numeric(),
-                    ])
+                    ->form([TextInput::make('total_from')->numeric(), TextInput::make('total_to')->numeric()])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['total_from'], fn ($q, $v) => $q->where('total', '>=', $v))
                         ->when($data['total_to'], fn ($q, $v) => $q->where('total', '<=', $v))
@@ -414,28 +433,19 @@ class OrderResource extends Resource
                         'delivered'        => 'تم التسليم',
                     ]),
                 Tables\Filters\Filter::make('orderDate_range')
-                    ->form([
-                        Forms\Components\DateTimePicker::make('orderDate_from')->label('من تاريخ الطلب')->displayFormat('d/m/Y H:i:s'),
-                        Forms\Components\DateTimePicker::make('orderDate_until')->label('إلى تاريخ الطلب')->displayFormat('d/m/Y H:i:s'),
-                    ])
+                    ->form([DateTimePicker::make('orderDate_from')->displayFormat('d/m/Y H:i:s'), DateTimePicker::make('orderDate_until')->displayFormat('d/m/Y H:i:s')])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['orderDate_from'], fn ($q, $v) => $q->where('orderDate', '>=', $v))
                         ->when($data['orderDate_until'], fn ($q, $v) => $q->where('orderDate', '<=', $v))
                     ),
                 Tables\Filters\Filter::make('created_at_range')
-                    ->form([
-                        Forms\Components\DateTimePicker::make('created_from')->label('من تاريخ الإنشاء')->displayFormat('d/m/Y H:i:s'),
-                        Forms\Components\DateTimePicker::make('created_until')->label('إلى تاريخ الإنشاء')->displayFormat('d/m/Y H:i:s'),
-                    ])
+                    ->form([DateTimePicker::make('created_from')->displayFormat('d/m/Y H:i:s'), DateTimePicker::make('created_until')->displayFormat('d/m/Y H:i:s')])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['created_from'], fn ($q, $v) => $q->where('created_at', '>=', $v))
                         ->when($data['created_until'], fn ($q, $v) => $q->where('created_at', '<=', $v))
                     ),
                 Tables\Filters\Filter::make('orderApproved_range')
-                    ->form([
-                        Forms\Components\DateTimePicker::make('orderApproved_from')->label('من تاريخ الموافقة')->displayFormat('d/m/Y H:i:s'),
-                        Forms\Components\DateTimePicker::make('orderApproved_until')->label('إلى تاريخ الموافقة')->displayFormat('d/m/Y H:i:s'),
-                    ])
+                    ->form([DateTimePicker::make('orderApproved_from')->displayFormat('d/m/Y H:i:s'), DateTimePicker::make('orderApproved_until')->displayFormat('d/m/Y H:i:s')])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['orderApproved_from'], fn ($q, $v) => $q->where('orderApproved', '>=', $v))
                         ->when($data['orderApproved_until'], fn ($q, $v) => $q->where('orderApproved', '<=', $v))
@@ -488,7 +498,6 @@ class OrderResource extends Resource
                 Tables\Actions\DeleteAction::make()->visible(fn () => Auth::user()->can('delete_orders')),
             ])
             ->headerActions([
-                // تصدير مع فلترة
                 Tables\Actions\Action::make('export_filtered')
                     ->label('تصدير إلى Excel (مع فلترة)')
                     ->icon('heroicon-o-document-arrow-down')
@@ -516,7 +525,6 @@ class OrderResource extends Resource
                     })
                     ->visible(fn () => Auth::user()->can('view_orders')),
                 
-                // تقرير مقارنة المراحل
                 Tables\Actions\Action::make('custom_stage_report')
                     ->label('تقرير مخصص (مقارنة مرحلتين)')
                     ->icon('heroicon-o-chart-bar')
@@ -576,7 +584,6 @@ class OrderResource extends Resource
                     })
                     ->visible(fn () => Auth::user()->can('view_orders')),
 
-                // تحميل قالب الاستيراد
                 Tables\Actions\Action::make('download_template')
                     ->label('تحميل قالب الاستيراد')
                     ->icon('heroicon-o-arrow-down-tray')
@@ -589,7 +596,6 @@ class OrderResource extends Resource
                         return response()->download($templatePath, 'import_template.xlsx');
                     }),
 
-                // استيراد ملف Excel – طريقة موثوقة
                 Tables\Actions\Action::make('import_excel')
                     ->label('استيراد من Excel')
                     ->icon('heroicon-o-arrow-up-tray')
@@ -599,10 +605,7 @@ class OrderResource extends Resource
                             ->label('ملف Excel')
                             ->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'])
                             ->required()
-                            ->helperText('يرجى تحميل ملف Excel بصيغة .xlsx أو .xls مطابق للقالب')
-                            ->disk('local')
-                            ->directory('imports_temp')
-                            ->preserveFilenames(false),
+                            ->helperText('يرجى تحميل ملف Excel بصيغة .xlsx أو .xls مطابق للقالب'),
                     ])
                     ->action(function (array $data) {
                         $fileId = $data['file'] ?? null;
@@ -610,20 +613,36 @@ class OrderResource extends Resource
                             Notification::make()->title('الملف غير موجود')->danger()->send();
                             return;
                         }
-                        $filePath = storage_path('app/imports_temp/' . $fileId);
-                        if (!file_exists($filePath)) {
-                            Notification::make()->title('الملف غير موجود في المسار: ' . $filePath)->danger()->send();
+                        $possiblePaths = [
+                            storage_path('app/public/' . $fileId),
+                            storage_path('app/livewire-tmp/' . $fileId),
+                            storage_path('livewire-tmp/' . $fileId),
+                            storage_path('app/imports_temp/' . $fileId),
+                        ];
+                        $foundPath = null;
+                        foreach ($possiblePaths as $path) {
+                            if (file_exists($path)) {
+                                $foundPath = $path;
+                                break;
+                            }
+                        }
+                        if (!$foundPath) {
+                            Notification::make()
+                                ->title('لم يتم العثور على الملف المرفوع')
+                                ->body("تم البحث في:\n" . implode("\n", $possiblePaths))
+                                ->danger()
+                                ->send();
                             return;
                         }
                         try {
-                            Excel::import(new OrderImport, $filePath);
+                            Excel::import(new OrderImport, $foundPath);
                             Notification::make()->title('تم الاستيراد بنجاح')->success()->send();
-                            // حذف الملف بعد الاستيراد
-                            if (file_exists($filePath)) {
-                                unlink($filePath);
-                            }
+                            @unlink($foundPath);
                         } catch (\Exception $e) {
-                            Notification::make()->title('فشل الاستيراد: ' . $e->getMessage())->danger()->send();
+                            Notification::make()
+                                ->title('فشل الاستيراد: ' . $e->getMessage())
+                                ->danger()
+                                ->send();
                         }
                     }),
             ])

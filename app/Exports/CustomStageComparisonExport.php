@@ -43,6 +43,8 @@ class CustomStageComparisonExport implements FromCollection, WithHeadings, WithM
             'الإجمالي',
             'اسم الموظف',
             'المنشئ',
+            'إجمالي المدة (من تاريخ الطلب → التسليم)',   // الحقل الجديد
+            'ملاحظات'                                    // الحقل الجديد
         ];
     }
 
@@ -81,6 +83,8 @@ class CustomStageComparisonExport implements FromCollection, WithHeadings, WithM
             number_format($order->total, 2),
             $order->employeeName,
             $order->user->name ?? '',
+            $order->total_duration ?? '',   // إجمالي المدة
+            $order->notes ?? '',            // الملاحظات
         ];
     }
 

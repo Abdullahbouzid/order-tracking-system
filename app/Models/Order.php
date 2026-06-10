@@ -17,11 +17,11 @@ class Order extends Model
         'collectPayment', 'sellApprove', 'releaseApprove',
         'startPreparation', 'readyToDeliver', 'outForDeliver',
         'delivered', 'currentStatus', 'user_id',
-        'cash_received', 'hawala_received'  // الحقول الجديدة
+        'cash_received', 'hawala_received', 'notes'
     ];
 
     protected $casts = [
-        'orderDate'          => 'datetime', // تم التعديل: orderDate من نوع timestamp في الميجريشن
+        'orderDate'          => 'datetime',
         'total'              => 'decimal:2',
         'cash_received'      => 'decimal:2',
         'hawala_received'    => 'decimal:2',
@@ -37,21 +37,19 @@ class Order extends Model
         'delivered'          => 'datetime',
     ];
 
-    // عند تعيين قيمة cash_received، يتم تحديث total
+    // حساب total تلقائياً عند تغيير cash_received أو hawala_received
     public function setCashReceivedAttribute($value)
     {
         $this->attributes['cash_received'] = $value;
         $this->updateTotal();
     }
 
-    // عند تعيين قيمة hawala_received، يتم تحديث total
     public function setHawalaReceivedAttribute($value)
     {
         $this->attributes['hawala_received'] = $value;
         $this->updateTotal();
     }
 
-    // دالة خاصة لحساب total = cash_received + hawala_received
     protected function updateTotal()
     {
         $cash = $this->attributes['cash_received'] ?? 0;
@@ -59,41 +57,27 @@ class Order extends Model
         $this->attributes['total'] = $cash + $hawala;
     }
 
-    // تنظيف القيمة عند التعيين
-    public function setAttribute($key, $value)
+    // إجمالي المدة بين orderDate و delivered
+    public function getTotalDurationAttribute(): string
     {
-        if (is_string($value)) {
-            $value = $this->cleanUtf8($value);
+        if (!$this->orderDate || !$this->delivered) {
+            return 'لم يكتمل';
         }
-        return parent::setAttribute($key, $value);
+        $diff = $this->orderDate->diff($this->delivered);
+        $parts = [];
+        if ($diff->d > 0) $parts[] = $diff->d . ' يوم';
+        if ($diff->h > 0) $parts[] = $diff->h . ' ساعة';
+        if ($diff->i > 0) $parts[] = $diff->i . ' دقيقة';
+        return implode(' ', $parts) ?: '0 دقيقة';
     }
 
-    // تنظيف القيمة عند القراءة
-    public function getAttribute($key)
-    {
-        $value = parent::getAttribute($key);
-        if (is_string($value)) {
-            $value = $this->cleanUtf8($value);
-        }
-        return $value;
-    }
-
-    // تنظيف النصوص من الأحرف غير الصالحة لـ UTF-8
-    protected function cleanUtf8($string)
-    {
-        $string = mb_convert_encoding($string, 'UTF-8', 'UTF-8');
-        $string = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $string);
-        $string = preg_replace('/^\xEF\xBB\xBF/', '', $string);
-        return $string;
-    }
-
-    // العلاقة مع المستخدم المنشئ
+    // العلاقة مع المستخدم
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
-    // نطاق لتصفية الطلبات حسب صلاحية المستخدم
+    // نطاق تصفية حسب صلاحية المستخدم
     public function scopeForUser($query, $userId)
     {
         if (auth()->user()->hasRole('super-admin')) {
@@ -102,14 +86,14 @@ class Order extends Model
         return $query->where('user_id', $userId);
     }
 
-    // الوقت الإجمالي من الإنشاء إلى التسليم
+    // الوقت الإجمالي بين الإنشاء والتسليم (المراحل)
     public function getTotalTimeAttribute(): ?string
     {
         if (!$this->delivered) return null;
         return $this->formatMinutes($this->delivered->diffInMinutes($this->created_at));
     }
 
-    // الوقت بين كل مرحلتين
+    // تفاصيل الوقت بين كل مرحلتين
     public function getStageTimesAttribute(): array
     {
         return [
@@ -145,7 +129,7 @@ class Order extends Model
         return implode(' ', $parts) ?: '0 دقيقة';
     }
 
-    // دالة مساعدة لحساب المدة بين تاريخين
+    // دالة مساعدة لحساب المدة بين تاريخين (static)
     public static function calculateDuration($start, $end): string
     {
         if (!$start || !$end) return 'لم يبدأ';
@@ -161,13 +145,30 @@ class Order extends Model
         if ($mins) $parts[] = "$mins دقيقة";
         return implode(' ', $parts) ?: '0 دقيقة';
     }
-    // داخل class Order
-protected static function booted()
-{
-    static::saving(function ($order) {
-        $cash = $order->cash_received ?? 0;
-        $hawala = $order->hawala_received ?? 0;
-        $order->total = $cash + $hawala;
-    });
-}
+
+    // التنظيف UTF-8 (اختياري)
+    public function setAttribute($key, $value)
+    {
+        if (is_string($value)) {
+            $value = $this->cleanUtf8($value);
+        }
+        return parent::setAttribute($key, $value);
+    }
+
+    public function getAttribute($key)
+    {
+        $value = parent::getAttribute($key);
+        if (is_string($value)) {
+            $value = $this->cleanUtf8($value);
+        }
+        return $value;
+    }
+
+    protected function cleanUtf8($string)
+    {
+        $string = mb_convert_encoding($string, 'UTF-8', 'UTF-8');
+        $string = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $string);
+        $string = preg_replace('/^\xEF\xBB\xBF/', '', $string);
+        return $string;
+    }
 }

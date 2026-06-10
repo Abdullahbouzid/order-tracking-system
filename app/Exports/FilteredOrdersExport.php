@@ -30,7 +30,8 @@ class FilteredOrdersExport implements FromCollection, WithHeadings, WithMapping,
             'طلب الموافقة', 'تمت الموافقة', 'طلب الدفع', 'تحصيل الدفع',
             'موافقة البيع', 'موافقة الإفراج', 'بدء التجهيز', 'جاهز للتسليم',
             'خرج للتسليم', 'تم التسليم', 'الوقت الإجمالي', 'الحالة الحالية',
-            'نوع الدفع', 'الإجمالي (LYD)', 'اسم الموظف', 'المنشئ'
+            'نوع الدفع', 'الإجمالي (LYD)', 'اسم الموظف', 'المنشئ',
+            'إجمالي المدة (من تاريخ الطلب → التسليم)', 'ملاحظات'   // الحقول الجديدة
         ];
     }
 
@@ -58,6 +59,8 @@ class FilteredOrdersExport implements FromCollection, WithHeadings, WithMapping,
             number_format($order->total, 2),
             $order->employeeName,
             $order->user->name ?? '',
+            $order->total_duration ?? '',   // إجمالي المدة
+            $order->notes ?? '',            // الملاحظات
         ];
     }
 
